@@ -6,7 +6,8 @@ import time
 
 class FolderChecker:
     def __init__(self, web_client=None):
-        self.folder_name = web_client.root_folder_name
+        self.web_client = web_client
+        self.folder_name = self.web_client.root_folder_name
         self.current_folders, self.current_files = self.get_root_data()
         _thread.start_new_thread(self.check_folder_state, ())
 
@@ -49,18 +50,21 @@ class FolderChecker:
         """
         folders, files = self.get_root_data()
         missing_folders, added_folders = self.get_folders_diff(folders)
-        return dict(missing_folders=missing_folders, added_folders=added_folders)
+        return dict(removed_folders=missing_folders, added_folders=added_folders)
 
     def check_folder_state(self):
         """
-        Infinite checker to determine any changes with files and folders
+        Infinite checker to determine any with files and folders changes
         """
         while self:
             diff = self.get_diff()
-            if diff['missing_folders']:
-                pass
-            if diff['added_folders']:
-                pass
+            if diff['removed_folders'] or diff['added_folders']:
+                self.web_client.send_request(
+                    method='GET',
+                    endpoint='/folders',
+                    params={'removed': diff['removed_folders'], 'added': diff['added_folders']}
+                )
+            # TODO: files
             time.sleep(1)
 
 

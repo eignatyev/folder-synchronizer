@@ -38,6 +38,11 @@ class Service(Resource):
             create_folders(self.root_folder_name)
             folders = params['folders']
             create_folders(folders)
+        elif endpoint == '/folders':
+            for folder in params.get('removed', []):
+                rmtree(folder)
+            for folder in params.get('added', []):
+                os.makedirs(folder)
         elif endpoint == '/end_of_session':
             rmtree(self.root_folder_name)
 

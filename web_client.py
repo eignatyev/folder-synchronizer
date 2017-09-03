@@ -18,9 +18,10 @@ class Client:
         self.root_folder_name = root_folder_name
         self.folder_checker = FolderChecker(web_client=self)
         self.send_initial_root_data()
+        self.current_diff = None  # Last tracked files and folders changes
 
-        repeating = task.LoopingCall(self.exchange_folder_data_with_server)
-        repeating.start(60)
+        # repeating = task.LoopingCall(self.exchange_folder_data_with_server)
+        # repeating.start(3)
 
     def exchange_folder_data_with_server(self):
         url = self.host_address + '/root_folder'
