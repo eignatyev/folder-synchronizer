@@ -10,7 +10,7 @@ from twisted.internet.defer import inlineCallbacks
 class Client:
     working_directory = 'client_directory'  # TODO: remove
     if not os.path.exists(working_directory):
-        os.makedirs(working_directory)
+        os.makedirs(working_directory, exist_ok=True)
     host_address = 'http://127.0.0.1:8880'
 
     def __init__(self, root_folder_name):

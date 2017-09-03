@@ -40,9 +40,10 @@ class Service(Resource):
             create_folders(folders)
         elif endpoint == '/folders':
             for folder in params.get('removed', []):
-                rmtree(folder)
+                if os.path.exists(folder):
+                    rmtree(folder)
             for folder in params.get('added', []):
-                os.makedirs(folder)
+                os.makedirs(folder, exist_ok=True)
         elif endpoint == '/end_of_session':
             rmtree(self.root_folder_name)
 
@@ -58,7 +59,7 @@ class Runner(Resource):
 def main():
     working_directory = 'server_directory'  # TODO: remove
     if not os.path.exists(working_directory):
-        os.makedirs(working_directory)
+        os.makedirs(working_directory, exist_ok=True)
     os.chdir(working_directory)
     service = Runner()
     factory = Site(service)
