@@ -1,0 +1,5 @@
+**.idea
+**.pyc
+client.py
+client_directory
+server.py
