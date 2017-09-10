@@ -2,4 +2,5 @@
 **.pyc
 client.py
 client_directory
+server_directory
 server.py

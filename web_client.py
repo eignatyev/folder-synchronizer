@@ -31,21 +31,32 @@ class Client:
 
     @inlineCallbacks
     def send_initial_root_data(self):
-        folders, file_paths = self.folder_checker.get_root_data()
+        folders, files_data = self.folder_checker.get_root_data()
+        file_paths = files_data.keys()
+
+        self.send_folders(folders)
+
+        for file_path in file_paths:
+            self.send_file(file_path)
+
+    @inlineCallbacks
+    def send_file(self, file_path):
+        files_response = yield self.send_request(
+            method='POST',
+            endpoint='/file',
+            params={'path': file_path},
+            data=read_file(file_path)
+        )
+        print(files_response)
+
+    @inlineCallbacks
+    def send_folders(self, folders):
         folders_response = yield self.send_request(
             method='GET',
             endpoint='/root_folder',
             params={'root': self.root_folder_name, 'folders': folders}
         )
         print(folders_response)
-        for file_path in file_paths:
-            files_response = yield self.send_request(
-                method='POST',
-                endpoint='/file',
-                params={'path': file_path},
-                data=read_file(file_path)
-            )
-            print(files_response)
 
     @inlineCallbacks
     def send_request(self, method, endpoint, params=None, data=None):

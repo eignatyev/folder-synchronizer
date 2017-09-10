@@ -5,27 +5,34 @@ import time
 
 
 class FolderChecker:
-    def __init__(self, web_client=None):
-        self.web_client = web_client
-        self.folder_name = self.web_client.root_folder_name
-        self.current_folders, self.current_files = self.get_root_data()
-        _thread.start_new_thread(self.check_folder_state, ())
+    def __init__(self, web_client=None, web_server=None):
+        self.parent = web_client or web_server
+        self.parent_class_name = self.parent.__class__.__name__
+        if self.parent_class_name == 'Client':
+            self.folder_name = self.parent.root_folder_name
+            self.saved_folders, self.saved_files_data = self.get_root_data()
+            _thread.start_new_thread(self.check_folder_state, ())
+        elif self.parent_class_name == 'Server':  # server does not have such data initially
+            self.folder_name = None
+            self.saved_folders, self.saved_files_data = None, None
 
     def get_root_data(self):
         """
         Returns a tuple of two lists: absolute folders paths and absolute files paths
-        :return: ([folders_paths], [files_paths])
+        :return: ([folders_paths], {<files_data>file_path: file_hash})
         """
         folders_data = [[folders, files] for folders, _, files in os.walk(self.folder_name)]
         folders = []
-        files = []
+        files_data = {}
         for folder_data in folders_data:
             folder_name_ = folder_data[0]
             folder_files = folder_data[1]
             folders.append(folder_name_)
             for f in folder_files:
-                files.append(os.path.join(folder_name_, f))
-        return folders, files
+                file_abs_path = os.path.join(folder_name_, f)
+                file_hash_sum = get_file_md5_hash(file_abs_path)
+                files_data[file_abs_path] = file_hash_sum  # dict is useful here for access without looping
+        return folders, files_data
 
     def get_folders_diff(self, folders):
         """
@@ -33,33 +40,90 @@ class FolderChecker:
         :param folders: list
         :return: ([missing_folders], [added_folders])
         """
-        missing_folders = list(set(self.current_folders).difference(set(folders)))
-        added_folders = list(set(folders).difference(set(self.current_folders)))
+        missing_folders = list(set(self.saved_folders).difference(set(folders)))
+        added_folders = list(set(folders).difference(set(self.saved_folders)))
         if any([missing_folders, added_folders]):
-            self.current_folders = folders
+            self.saved_folders = folders
         return missing_folders, added_folders
 
-    def get_files_diff(self, folders):
-        # TODO
-        pass
+    def get_files_diff(self, current_files_data):
+        """
+        Compares saved files data with the current files data
+        :param current_files_data: list of dicts
+        :return: ([<missing_files_paths>str], [<added_files_paths>str], [<moved_files_paths>{'from': str, 'to': str}])
+        """
+        saved_files_paths, saved_files_hashes = zip(*self.saved_files_data.items())
+        current_files_paths, current_files_hashes = zip(*current_files_data.items())
+
+        missing_files_paths = list(set(saved_files_paths).difference(set(current_files_paths)))
+        missing_files_hashes = [self.saved_files_data[path] for path in missing_files_paths]
+        added_files_paths = list(set(current_files_paths).difference(set(saved_files_paths)))
+        added_files_hashes = [current_files_data[path] for path in added_files_paths]
+
+        # get moved files paths
+        moved_files_hashes = list(set(missing_files_hashes).intersection(set(added_files_hashes)))
+        moved_files_paths = [
+            {
+                'from': self.get_file_path_by_hash(self.saved_files_data, hash_),
+                'to': self.get_file_path_by_hash(current_files_data, hash_)
+            } for hash_ in moved_files_hashes
+        ]
+
+        # get missing files paths
+        missing_files_paths = [  # remove "moved" files paths
+            self.get_file_path_by_hash(self.saved_files_data, hash_)
+            for hash_ in missing_files_hashes if hash_ not in moved_files_hashes
+        ]
+
+        # get added files paths
+        added_files_paths = [  # remove "moved" files paths
+            self.get_file_path_by_hash(current_files_data, hash_)
+            for hash_ in added_files_hashes if hash_ not in moved_files_hashes
+        ]
+
+        # get edited files paths
+        remained_files_paths = list(set(saved_files_paths).intersection(set(current_files_paths)))
+        for file_path in remained_files_paths:
+            if self.saved_files_data[file_path] != current_files_data[file_path]:  # compare hashes
+                missing_files_paths.append(file_path)
+                added_files_paths.append(file_path)
+
+        if any([missing_files_paths, added_files_paths, moved_files_paths]):
+            self.saved_files_data = current_files_data
+
+        return missing_files_paths, added_files_paths, moved_files_paths
+
+    @staticmethod
+    def get_file_path_by_hash(files_data, hash_):
+        for file_path, file_hash in files_data.items():
+            if file_hash == hash_:
+                return file_path
+        return None
 
     def get_diff(self):
         """
         Returns a dictionary with changed, new and missing files/folders
         :return: dict(...)
         """
-        folders, files = self.get_root_data()
+        folders, files_data = self.get_root_data()
+        missing_files, added_files, moved_files = self.get_files_diff(files_data)
+        if missing_files:
+            print('Missing files: {}'.format(missing_files))
+        if added_files:
+            print('Added files: {}'.format(added_files))
+        if moved_files:
+            print('Moved files: {}'.format(moved_files))
         missing_folders, added_folders = self.get_folders_diff(folders)
         return dict(removed_folders=missing_folders, added_folders=added_folders)
 
     def check_folder_state(self):
         """
-        Infinite checker to determine any with files and folders changes
+        Infinite checker to determine any files and folders changes
         """
         while self:
             diff = self.get_diff()
             if diff['removed_folders'] or diff['added_folders']:
-                self.web_client.send_request(
+                self.parent.send_request(
                     method='GET',
                     endpoint='/folders',
                     params={'removed': diff['removed_folders'], 'added': diff['added_folders']}
