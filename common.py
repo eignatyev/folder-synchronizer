@@ -1,6 +1,8 @@
 import _thread
 import hashlib
+import json
 import os
+import shutil
 import time
 
 
@@ -29,9 +31,10 @@ class FolderChecker:
             folder_files = folder_data[1]
             folders.append(folder_name_)
             for f in folder_files:
-                file_abs_path = os.path.join(folder_name_, f)
+                file_abs_path = os.path.join('.', folder_name_, f)
                 file_hash_sum = get_file_md5_hash(file_abs_path)
-                files_data[file_abs_path] = file_hash_sum  # dict is useful here for access without looping
+                if file_hash_sum:
+                    files_data[file_abs_path] = file_hash_sum  # dict is useful here for access without looping
         return folders, files_data
 
     def get_folders_diff(self, folders):
@@ -52,8 +55,14 @@ class FolderChecker:
         :param current_files_data: list of dicts
         :return: ([<missing_files_paths>str], [<added_files_paths>str], [<moved_files_paths>{'from': str, 'to': str}])
         """
-        saved_files_paths, saved_files_hashes = zip(*self.saved_files_data.items())
-        current_files_paths, current_files_hashes = zip(*current_files_data.items())
+        if self.saved_files_data:
+            saved_files_paths, saved_files_hashes = zip(*self.saved_files_data.items())
+        else:
+            saved_files_paths, saved_files_hashes = [], []
+        if current_files_data:
+            current_files_paths, current_files_hashes = zip(*current_files_data.items())
+        else:
+            current_files_paths, current_files_hashes = [], []
 
         missing_files_paths = list(set(saved_files_paths).difference(set(current_files_paths)))
         missing_files_hashes = [self.saved_files_data[path] for path in missing_files_paths]
@@ -63,10 +72,10 @@ class FolderChecker:
         # get moved files paths
         moved_files_hashes = list(set(missing_files_hashes).intersection(set(added_files_hashes)))
         moved_files_paths = [
-            {
+            json.dumps({
                 'from': self.get_file_path_by_hash(self.saved_files_data, hash_),
                 'to': self.get_file_path_by_hash(current_files_data, hash_)
-            } for hash_ in moved_files_hashes
+            }) for hash_ in moved_files_hashes
         ]
 
         # get missing files paths
@@ -107,14 +116,16 @@ class FolderChecker:
         """
         folders, files_data = self.get_root_data()
         missing_files, added_files, moved_files = self.get_files_diff(files_data)
-        if missing_files:
-            print('Missing files: {}'.format(missing_files))
-        if added_files:
-            print('Added files: {}'.format(added_files))
-        if moved_files:
-            print('Moved files: {}'.format(moved_files))
         missing_folders, added_folders = self.get_folders_diff(folders)
-        return dict(removed_folders=missing_folders, added_folders=added_folders)
+        if any([missing_folders, added_folders, missing_files, added_files, moved_files]):
+            return dict(
+                removed_folders=missing_folders,
+                added_folders=added_folders,
+                removed_files=missing_files,
+                added_files=added_files,
+                moved_files=moved_files
+            )
+        return None
 
     def check_folder_state(self):
         """
@@ -122,13 +133,9 @@ class FolderChecker:
         """
         while self:
             diff = self.get_diff()
-            if diff['removed_folders'] or diff['added_folders']:
-                self.parent.send_request(
-                    method='GET',
-                    endpoint='/folders',
-                    params={'removed': diff['removed_folders'], 'added': diff['added_folders']}
-                )
-            # TODO: files
+            print(diff)
+            if diff:
+                self.parent.send_diff_data(diff)
             time.sleep(1)
 
 
@@ -147,17 +154,28 @@ def read_file(file_path):
         return file_.read()
 
 
-def create_folders(folders):
-    if isinstance(folders, str):
-        folders = folders.split(',')
-    for f in folders:
-        if not os.path.exists(f):
-            os.makedirs(f)
+def create_folder(folder):
+        os.makedirs(folder, exist_ok=True)
+
+
+def remove_folder(folder_path):
+    shutil.rmtree(folder_path, ignore_errors=True)
 
 
 def create_file(file_path, body):
-    with open(file_path, 'wb') as f:
-        f.write(bytearray(body))
+    try:
+        with open(file_path, 'wb') as f:
+            f.write(bytearray(body))
+    except Exception as e:
+        print(e)
+
+
+def remove_file(file_path):
+    os.remove(file_path)
+
+
+def move_file(from_, to_):
+    os.rename(from_, to_)
 
 
 def decode(s):
@@ -180,5 +198,10 @@ def decode_dict_strings(params):
 
 
 def get_file_md5_hash(file_path):
-    with open(file_path, 'rb') as file_:
-        return hashlib.md5(file_.read()).hexdigest()
+    if os.path.exists(file_path):  # avoid working with removed files
+        modification_time = str(os.path.getmtime(file_path) * (10 ** 7))  # remove floating point
+        binary_modification_time = encode(modification_time)
+        with open(file_path, 'rb') as file_:
+            return hashlib.md5(binary_modification_time + file_.read()).hexdigest()
+    return None
+
