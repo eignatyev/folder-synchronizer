@@ -1,31 +1,33 @@
-import json
-import os
 import sys
+
+import _thread
+from time import sleep
+
 import treq
 
-from common import FolderChecker, read_file, encode
+from common import *
 from twisted.internet import task, reactor
-from twisted.internet.defer import inlineCallbacks, Deferred
+from twisted.internet.defer import inlineCallbacks
 
 
 class Client:
-    working_directory = 'client_directory'  # TODO: remove
-    if not os.path.exists(working_directory):
-        os.makedirs(working_directory, exist_ok=True)
     host_address = 'http://127.0.0.1:8880'
 
-    def __init__(self, root_folder_name):
-        os.chdir(self.working_directory)
-        self.root_folder_name = root_folder_name
+    def __init__(self, root_folder):
+        self.root_folder_path, self.root_folder_name = os.path.split(root_folder)
+        os.chdir(self.root_folder_path)
         self.folder_checker = FolderChecker(web_client=self)
         self.send_initial_root_data()
-        self.current_diff = None  # Last tracked files and folders changes
 
+        self.files_to_send_queue = []
+        _thread.start_new_thread(self.send_files_from_queue, ())
+        _thread.start_new_thread(self.stop_session, ())
+
+        # self.current_diff = None  # Last tracked files and folders changes
         # repeating = task.LoopingCall(self.exchange_folder_data_with_server)
         # repeating.start(3)
 
     def send_initial_root_data(self):
-        self.send_root_folder_name()
         self.exchange_root_data_with_server()
 
     @inlineCallbacks
@@ -38,8 +40,8 @@ class Client:
                 files=self.folder_checker.saved_files_data
             )))
         )
-        print(1)
-        self.send_files(root_data_response)
+        requested_files = json.loads(root_data_response)['post_files']
+        self.files_to_send_queue += requested_files
 
     @inlineCallbacks
     def send_file(self, file_path):
@@ -49,7 +51,8 @@ class Client:
             params={'path': file_path},
             data=read_file(file_path)
         )
-        print(files_response)
+        print('sent "{}" file'.format(file_path))
+        self.print_server_response(files_response)
 
     def send_files(self, raw_response):
         root_data_dict = json.loads(raw_response)
@@ -61,9 +64,9 @@ class Client:
         root_response = yield self.send_request(
             method='GET',
             endpoint='/root_folder',
-            params={'name': self.root_folder_name}
+            params={'name': os.path.split(self.root_folder_name)[-1]}
         )
-        print(root_response)
+        self.print_server_response(root_response)
         return root_response
 
     @inlineCallbacks
@@ -77,6 +80,8 @@ class Client:
 
     @inlineCallbacks
     def send_request(self, method, endpoint, params=None, data=None):
+        if params is None:
+            params = {}
         if method.lower() == 'get':
             response = yield treq.get(self.host_address + endpoint, headers=None, params=params)
             content = yield response.text()
@@ -87,16 +92,38 @@ class Client:
             raise IndexError('Wrong http method')
         return content
 
+    @staticmethod
+    def print_server_response(response):
+        print('SERVER RESPONSE: {}'.format(response))
+
     @inlineCallbacks
-    def __del__(self):
-        response = yield self.send_request(method='GET', endpoint='/end_of_session')
-        print(response)
+    def send_end_of_session_command(self):
+        response = yield self.send_request(
+            method='GET',
+            endpoint='/end_of_session',
+            params=dict(remove_folder=self.root_folder_name)
+        )
+        self.print_server_response(response)
+
+    @inlineCallbacks
+    def stop_session(self):
+        input('\n\nPress ENTER to stop the session!\n\n')
+        yield self.send_end_of_session_command()
+        reactor.stop()
+
+    def send_files_from_queue(self):
+        while self:
+            if self.files_to_send_queue:
+                file_path = self.files_to_send_queue.pop(0)
+                self.send_file(file_path)
+            else:
+                sleep(1)  # if no files in queue - check once per second
 
 
 def main():
     if len(sys.argv) == 2:
         root_folder_name = sys.argv[-1]
-        _ = Client(root_folder_name)
+        Client(root_folder_name)
         reactor.run()
     else:
         print('Program usage example: python3 web_client.py <folder_path>')

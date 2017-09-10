@@ -7,6 +7,10 @@ import time
 
 
 class FolderChecker:
+    """
+    Purpose - track, collect root folder data and calculate certain data diffs
+    Potentially can be used by both, a server and a client
+    """
     def __init__(self, web_client=None, web_server=None):
         self.parent = web_client or web_server
         self.parent_class_name = self.parent.__class__.__name__
@@ -133,7 +137,7 @@ class FolderChecker:
         """
         while self:
             diff = self.get_diff()
-            print(diff)
+            print(diff or 'No changes detected')
             if diff:
                 self.parent.send_diff_data(diff)
             time.sleep(1)
