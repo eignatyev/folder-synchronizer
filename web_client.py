@@ -34,23 +34,24 @@ class Client:
         folders, files_data = self.folder_checker.get_root_data()
         file_paths = files_data.keys()
 
-        self.send_folders(folders)
+        self.send_root_folder_data_with_folders(folders)
 
-        for file_path in file_paths:
+        for file_path in file_paths:  # send all existing files
             self.send_file(file_path)
+        yield
 
     @inlineCallbacks
     def send_file(self, file_path):
         files_response = yield self.send_request(
             method='POST',
             endpoint='/file',
-            params={'path': file_path},
+            params={'path': os.path.normpath('./' + file_path)},
             data=read_file(file_path)
         )
         print(files_response)
 
     @inlineCallbacks
-    def send_folders(self, folders):
+    def send_root_folder_data_with_folders(self, folders):
         folders_response = yield self.send_request(
             method='GET',
             endpoint='/root_folder',

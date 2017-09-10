@@ -12,7 +12,7 @@ class Service(Resource):
         Resource.__init__(self)
         self.putChild('root_folder', self)
         self.putChild('folders', self)
-        self.putChild('files', self)
+        self.putChild('file', self)
         self.root_folder_name = ''
 
     def render_GET(self, request):
