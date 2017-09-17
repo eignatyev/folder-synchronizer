@@ -7,6 +7,10 @@ Communication goes through **8880** port
 
 When a **Client** takes a folder with existing data (files and other folders) as an argument, this data is transfered to a **Server**
 
+**Preconditions:**
+* Install [pywin32](https://sourceforge.net/projects/pywin32/) if running on Windows machine
+* Install required modules ```pip install twisted treq```
+
 How **Server** works:
 * Does not have any console arguments to run with. Just execute ```python3 web_server.py```
 * Runs from any folder
